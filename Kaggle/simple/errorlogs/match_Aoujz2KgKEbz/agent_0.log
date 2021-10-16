@@ -1,0 +1,11 @@
+=== Agent Install Log ===
+=== Agent Compile Log ===
+=== Agent Error Log ===
+Traceback (most recent call last):
+  File "main.py", line 32, in <module>
+    actions = agent(observation, None)
+  File "/Users/alexandrec/Kaggle/simple/agent.py", line 70, in agent
+    while(not cell_is_free(game_state.map.get_cell_by_pos(destination))):
+  File "/Users/alexandrec/Kaggle/simple/agent.py", line 45, in cell_is_free
+    return cell.citytile is None and not cell.has_resources()
+AttributeError: 'Cell' object has no attribute 'has_resources'

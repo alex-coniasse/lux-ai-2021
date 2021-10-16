@@ -1,0 +1,11 @@
+=== Agent Install Log ===
+=== Agent Compile Log ===
+=== Agent Error Log ===
+Traceback (most recent call last):
+  File "main.py", line 32, in <module>
+    actions = agent(observation, None)
+  File "/Users/alexandrec/Kaggle/simple/agent.py", line 64, in agent
+    while(not unit.can_build(destination)):
+  File "/Users/alexandrec/Kaggle/simple/lux/game_objects.py", line 107, in can_build
+    cell = game_map.get_cell_by_pos(self.pos)
+AttributeError: 'Position' object has no attribute 'get_cell_by_pos'
