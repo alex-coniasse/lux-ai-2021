@@ -16,31 +16,25 @@ class MapEncoder(torch.nn.Module):
         out = self.ffn_map(flat)
         return out
 
-class UnitRNN(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.rnn_unit = torch.nn.GRU(8, 128, 2, dropout=0)
-    def forward(self, x):
-        hn = torch.zeros(2, 1, 128)
-        for k in range (x.shape[1]):
-            pred, hn = self.rnn_unit(x[:,k,:].unsqueeze(1), hn)
-        return pred
-
 class LuxrNet(torch.nn.Module):
     def __init__(self, output_dim):
         super().__init__()
-        self.unitRnn = UnitRNN()
+        self.rnn = torch.nn.GRU(8, 128, 2, dropout=0)
         self.mapEncoder = MapEncoder()
         self.relu = torch.nn.ReLU()
         self.joiner = torch.nn.Linear(640,512)
         self.output = torch.nn.Linear(512,output_dim)
 
     def forward(self, global_features, units_features):
+        values =[]
+        hk = torch.zeros(2, 1, 128)
         glob = self.mapEncoder(global_features)
-        units = self.unitRnn(units_features)
-        hidden_out = self.joiner(torch.cat((glob, units.squeeze(1)), 1))
-        out = self.output(self.relu(hidden_out))
-        return out
+        for k in range (units_features.shape[1]):
+            pred, hk = self.rnn(units_features[:,k,:].unsqueeze(1), hk)
+            hidden_out = self.joiner(torch.cat((glob, pred.squeeze(1)), 1))
+            out_k = self.output(self.relu(hidden_out))
+            values.append(out_k)
+        return values
 
 class DDQN(torch.nn.Module):
     def __init__(self, output_dim):
@@ -51,8 +45,12 @@ class DDQN(torch.nn.Module):
         for p in self.target.parameters():
             p.requires_grad = False
 
-    def forward(self, global_features, units_features, mode):
+    def forward(self, state, mode):
+        global_features = state[0]
+        units_features = state[1]
         if mode == "online":
             return self.online(global_features, units_features)
         if mode == "target":
             return self.target(global_features, units_features)
+   
+
