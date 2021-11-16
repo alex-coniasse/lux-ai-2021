@@ -1,5 +1,7 @@
 import torch
 import copy
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
 class MapEncoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -19,22 +21,24 @@ class MapEncoder(torch.nn.Module):
 class LuxrNet(torch.nn.Module):
     def __init__(self, output_dim):
         super().__init__()
-        self.rnn = torch.nn.GRU(8, 128, 2, dropout=0)
+        self.rnn = torch.nn.GRU(9, 128, 2, dropout=0, batch_first=True)
         self.mapEncoder = MapEncoder()
         self.relu = torch.nn.ReLU()
         self.joiner = torch.nn.Linear(640,512)
         self.output = torch.nn.Linear(512,output_dim)
 
-    def forward(self, global_features, units_features):
-        values =[]
-        hk = torch.zeros(2, 1, 128)
+    def forward(self, global_features, units_features, packed):
+        bs = global_features.shape[0]
+        h0 = torch.zeros(2, bs, 128)
         glob = self.mapEncoder(global_features)
-        for k in range (units_features.shape[1]):
-            pred, hk = self.rnn(units_features[:,k,:].unsqueeze(1), hk)
-            hidden_out = self.joiner(torch.cat((glob, pred.squeeze(1)), 1))
-            out_k = self.output(self.relu(hidden_out))
-            values.append(out_k)
-        return values
+        preds, hn = self.rnn(units_features, h0)
+        if packed:
+            preds, lens_unpacked = torch.nn.utils.rnn.pad_packed_sequence(preds, batch_first=True)
+        seq_len = preds.shape[1]
+        hidden_out = self.joiner(torch.cat((glob.unsqueeze(1).repeat(1,seq_len,1), preds), 2))
+        out = self.output(self.relu(hidden_out))
+        return [out[:,k,:] for k in range(seq_len)]
+        # return out
 
 class DDQN(torch.nn.Module):
     def __init__(self, output_dim):
@@ -45,12 +49,15 @@ class DDQN(torch.nn.Module):
         for p in self.target.parameters():
             p.requires_grad = False
 
-    def forward(self, state, mode):
+    def forward(self, state, mode, seq_lenghts=None):
         global_features = state[0]
         units_features = state[1]
+        if seq_lenghts:
+            units_features = torch.nn.utils.rnn.pack_padded_sequence(units_features, seq_lenghts, batch_first=True, enforce_sorted=False)   
+            
         if mode == "online":
-            return self.online(global_features, units_features)
+            return self.online(global_features, units_features, seq_lenghts)
         if mode == "target":
-            return self.target(global_features, units_features)
+            return self.target(global_features, units_features, seq_lenghts)
    
 
