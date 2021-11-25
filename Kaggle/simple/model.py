@@ -1,6 +1,7 @@
 import torch
 import copy
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torchsummary import summary
 
 class MapEncoder(torch.nn.Module):
     def __init__(self):
@@ -21,15 +22,16 @@ class MapEncoder(torch.nn.Module):
 class LuxrNet(torch.nn.Module):
     def __init__(self, output_dim):
         super().__init__()
-        self.rnn = torch.nn.GRU(9, 128, 2, dropout=0, batch_first=True)
+        self.rnn = torch.nn.GRU(9, 128, 1, dropout=0, batch_first=True)
         self.mapEncoder = MapEncoder()
         self.relu = torch.nn.ReLU()
         self.joiner = torch.nn.Linear(640,512)
         self.output = torch.nn.Linear(512,output_dim)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    def forward(self, global_features, units_features, packed):
+    def forward(self, global_features, units_features, packed=False):
         bs = global_features.shape[0]
-        h0 = torch.zeros(2, bs, 128)
+        h0 = torch.zeros(1, bs, 128).to(self.device)
         glob = self.mapEncoder(global_features)
         preds, hn = self.rnn(units_features, h0)
         if packed:
@@ -41,7 +43,7 @@ class LuxrNet(torch.nn.Module):
         # return out
 
 class DDQN(torch.nn.Module):
-    def __init__(self, output_dim):
+    def __init__(self, output_dim, device):
         super().__init__()
         self.online = LuxrNet(output_dim)
         self.target = copy.deepcopy(self.online)
@@ -60,4 +62,3 @@ class DDQN(torch.nn.Module):
         if mode == "target":
             return self.target(global_features, units_features, seq_lenghts)
    
-
