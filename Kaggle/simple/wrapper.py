@@ -36,6 +36,7 @@ class EnvWrapper:
 
         self.resource_tiles: list[Cell] = []
         self.city_tiles: list[Cell] = []
+        self.current_reward = 0
     
         for y in range(self.height):
             for x in range(self.width):
@@ -52,7 +53,13 @@ class EnvWrapper:
         player = self.player
         ct_count = sum([len(v.citytiles) for k, v in player.cities.items()])
         unit_count = len(self.game_state.players[player.team].units)
-        return ct_count * 10000 + unit_count*10 # + self.obs["step"]*10
+        score = ct_count * 10000 + unit_count*10
+        reward = 0 if score == self.current_reward
+        reward = 1 if score > self.current_reward
+        reward = -1 if score < self.current_reward
+        self.current_reward = score
+
+        return reward
     
 
     def get_cell_resources(self, cell: Cell):
