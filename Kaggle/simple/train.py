@@ -6,13 +6,16 @@ import time
 from bot import Bot
 from wrapper import EnvWrapper
 
-episodes = 10
+from agent import agent
+
+episodes = 17000
 max_reward = 1000000
 
 
 if __name__ == "__main__":
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if (torch.cuda.is_available()) else "cpu"
+    device = "cpu"
     # arg parse
 
     # environment config
@@ -25,7 +28,7 @@ if __name__ == "__main__":
     np.random.seed(43)
 
     
-    bot = Bot( "/Users/alexandrec/lux-ai-2021/Kaggle/simple/ckpts")
+    bot = Bot( "./ckpts")
     env = make("lux_ai_2021", configuration={"seed": 562124210, "loglevel": 2, "annotations": False}, debug=False)
     env = EnvWrapper(env, agent)
     writer = SummaryWriter()

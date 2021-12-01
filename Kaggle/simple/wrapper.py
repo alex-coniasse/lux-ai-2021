@@ -9,13 +9,13 @@ from lux import annotate
 import torch
 
 class EnvWrapper:
-    def __init__(self, env, opponent, device):
+    def __init__(self, env, opponent):
         self.game_state = Game()
         self.env = env
         self.trainer = env.train([None,opponent])
         obs = self.trainer.reset()
         self.update_game_state(obs)
-        self.device = device
+        self.device = "cpu"
 
 
     def update_game_state(self, observation):

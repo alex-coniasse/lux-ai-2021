@@ -43,7 +43,7 @@ class LuxrNet(torch.nn.Module):
         # return out
 
 class DDQN(torch.nn.Module):
-    def __init__(self, output_dim, device):
+    def __init__(self, output_dim):
         super().__init__()
         self.online = LuxrNet(output_dim)
         self.target = copy.deepcopy(self.online)

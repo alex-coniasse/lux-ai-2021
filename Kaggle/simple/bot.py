@@ -1,4 +1,5 @@
 import random
+import torch
 import sys
 from lux.game import Game
 from functools import partial
@@ -6,13 +7,16 @@ from collections import deque
 from lux.constants import Constants
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_sequence
+from model import DDQN
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 DIRECTIONS = Constants.DIRECTIONS
 class Bot:
     def __init__(self, save_dir):
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu"
         self.save_dir = save_dir
         self.action_space = 6
         self.model = DDQN(self.action_space).to(self.device)
