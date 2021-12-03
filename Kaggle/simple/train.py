@@ -7,6 +7,10 @@ from bot import Bot
 from wrapper import EnvWrapper
 
 from agent import agent
+import argparse
+
+
+
 
 episodes = 17000
 max_reward = 1000000
@@ -14,12 +18,13 @@ max_reward = 1000000
 
 if __name__ == "__main__":
     
-    # device = "cuda" if (torch.cuda.is_available()) else "cpu"
-    device = "cpu"
-    # arg parse
+    device = "cuda" if (torch.cuda.is_available()) else "cpu"
 
-    # environment config
-    env = make("lux_ai_2021", configuration={"seed": 562124210, "loglevel": 2, "annotations": True}, debug=True)
+    # arg parse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--load-ckpt',action='store', type=str,
+                    help='The latest checkpoint')
+    args = parser.parse_args()
     
     print("Using device: ", device)
 
@@ -27,10 +32,12 @@ if __name__ == "__main__":
     torch.manual_seed(43)
     np.random.seed(43)
 
-    
-    bot = Bot( "./ckpts")
-    env = make("lux_ai_2021", configuration={"seed": 562124210, "loglevel": 2, "annotations": False}, debug=False)
-    env = EnvWrapper(env, agent)
+    bot = Bot( "./ckpts/")
+    if args.load_ckpt:
+        print("loading checkpoint:", args.load_ckpt)
+        bot.load(args.load_ckpt)
+
+    env = EnvWrapper(agent)
     writer = SummaryWriter()
 
     def action_string_to_idx(action):
@@ -92,4 +99,5 @@ if __name__ == "__main__":
                     print(len(best_episodes))
                 break
         writer.close()
+
 

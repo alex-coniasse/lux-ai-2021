@@ -15,8 +15,7 @@ DIRECTIONS = Constants.DIRECTIONS
 class Bot:
     def __init__(self, save_dir):
         
-        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.save_dir = save_dir
         self.action_space = 6
         self.model = DDQN(self.action_space).to(self.device)
@@ -26,7 +25,7 @@ class Bot:
         self.exploration_rate_decay = 0.9999975
         self.exploration_rate_min = 0.1
         self.curr_step = 0
-        self.save_every = 1e5
+        self.save_every = 5e4
         self.batch_size = 16
         self.gamma = 0.9
 
@@ -140,6 +139,11 @@ class Bot:
             save_path,
         )
         print(f"LuxRN saved to {save_path} at step {self.curr_step}")
+
+    def load(self,filename):
+        saved = torch.load(filename)
+        self.model.load_state_dict(saved["model"])
+        self.exploration_rate = (saved["exploration_rate"])
 
     def learn(self):
 

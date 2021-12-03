@@ -5,17 +5,21 @@ from lux.game_map import Cell, RESOURCE_TYPES
 from lux.constants import Constants
 from lux.game_constants import GAME_CONSTANTS
 from lux import annotate
+from kaggle_environments import make
 
 import torch
+import numpy as np
 
 class EnvWrapper:
-    def __init__(self, env, opponent):
+    def __init__(self, opponent):
         self.game_state = Game()
-        self.env = env
-        self.trainer = env.train([None,opponent])
+        self.opponent = opponent
+        self.env = make("lux_ai_2021", configuration={"seed": 562124210, "loglevel": 0, "annotations": False}, debug=False)
+        self.trainer = self.env.train([None,opponent])
         obs = self.trainer.reset()
         self.update_game_state(obs)
         self.device = "cpu"
+        self.current_reward = 0
 
 
     def update_game_state(self, observation):
@@ -36,7 +40,7 @@ class EnvWrapper:
 
         self.resource_tiles: list[Cell] = []
         self.city_tiles: list[Cell] = []
-        self.current_reward = 0
+        
     
         for y in range(self.height):
             for x in range(self.width):
@@ -54,9 +58,12 @@ class EnvWrapper:
         ct_count = sum([len(v.citytiles) for k, v in player.cities.items()])
         unit_count = len(self.game_state.players[player.team].units)
         score = ct_count * 10000 + unit_count*10
-        reward = 0 if score == self.current_reward
-        reward = 1 if score > self.current_reward
-        reward = -1 if score < self.current_reward
+        if score == self.current_reward:
+            reward = 0 
+        if score > self.current_reward:
+            reward = 1
+        if score < self.current_reward:
+            reward = -1 
         self.current_reward = score
 
         return reward
@@ -143,11 +150,15 @@ class EnvWrapper:
         return [global_state,units_state,city_state], reward, done, info
 
     def reset(self):
+        map_seed = np.random.randint(0,1000000000)
+        self.env = make("lux_ai_2021", configuration={"seed": map_seed, "loglevel": 0, "annotations": False}, debug=False)
+        self.trainer = self.env.train([None,self.opponent])
         obs = self.trainer.reset()
         self.update_game_state(obs)
         global_state = self.get_global_state()
         units_state = self.get_units_state()
         city_state = torch.tensor([]).to(self.device)
+        print("map size: ", self.height)
         return [global_state,units_state,city_state]
     
     def get_game_objects(self):
