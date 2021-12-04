@@ -93,61 +93,50 @@ class EnvWrapper:
                     uranium += cell.resource.amount if cell.resource.type == 'uranium' else 0
         return wood, coal, uranium
     
-    def get_units_state(self):
-        units = []
+    def add_units_state(self, state):
+        # player units features
         for unit in self.player.units:
-            if unit.can_act():
-                cell = self.game_map.get_cell_by_pos(unit.pos)
-                worker_type = 0 if unit.is_worker() else 1
-                cargo = unit.get_cargo_space_left()
-                pos_x = unit.pos.x
-                pos_y = unit.pos.y
-                is_in_city = cell.citytile != None
-                adjacent_wood, adjacent_coal, adjacent_uranium = self.get_adjacent_resources(unit.pos)
-                research = self.player.research_points
-                units.append([worker_type, cargo, adjacent_wood, adjacent_coal, adjacent_uranium, is_in_city, research, pos_x, pos_y])
-        return torch.tensor(units,dtype=torch.float32).to(self.device)     
-    
-    def get_cell_type(self, cell):
-        cell_code = 0
-        all_units = [self.player.units, self.opponent.units]
-        for unit in self.player.units:
-            if unit.pos == cell.pos:
-                cell_code = 1
-                if unit.is_cart:
-                    cell_code +=0.5
+            active = 1 if unit.can_act() else 0.1
+            cell = self.game_map.get_cell_by_pos(unit.pos)
+            worker_type = 1 if unit.is_worker() else 0.5
+            cargo = unit.get_cargo_space_left()
+            x = unit.pos.x
+            y = unit.pos.y
+            is_in_city = cell.citytile != None
+            adjacent_wood, adjacent_coal, adjacent_uranium = self.get_adjacent_resources(unit.pos)
+            state[-8:-1, x, y] = torch.tensor([worker_type, cargo, adjacent_wood, adjacent_coal, adjacent_uranium, is_in_city, active]).to(self.device)
+        # opponent units features
         for unit in self.opponent.units:
-            if unit.pos == cell.pos:
-                cell_code = 2
-                if unit.is_cart:
-                    cell_code +=0.5
-        return cell_code
-
+            x = unit.pos.x
+            y = unit.pos.y
+            cell_code = 1
+            if unit.is_cart:
+                cell_code +=0.5
+            state[-8, x, y]= cell_code
+        return state
 
     def get_global_state(self):
-        state = torch.zeros(10,32,32, dtype=torch.float32).to(self.device)
+        state = torch.zeros(16,32,32, dtype=torch.float32).to(self.device)
         for x in range(self.width):
             for y in range(self.height):
                 cell = self.game_map.get_cell(x,y)
                 w, c, u = self.get_cell_resources(cell)
-                cell_occupant = self.get_cell_type(cell)
                 cityid = int(cell.citytile.cityid[2:])+1 if cell.citytile else 0
                 city = (cell.citytile.team+1) if cell.citytile else 0
                 fuel = (self.opponent.cities[cell.citytile.cityid].fuel if city == self.opponent.team+1
                        else self.player.cities[cell.citytile.cityid].fuel if city == self.player.team+1 else 0)
                 road = cell.road
-                state[:,x,y]= torch.tensor([w, c, u, cell_occupant, cityid, fuel, city, road, x, y]).to(self.device)
+                research = self.player.research_points
+                state[:,x,y]= torch.tensor([w, c, u, cityid, fuel, city, road, research, 0, 0, 0, 0, 0, 0, 0, 0]).to(self.device)
+        state = self.add_units_state(state)
         return state
-
 
     def step(self, action):
         obs, _, done, info = self.trainer.step(action)
         game_state = self.update_game_state(obs)
         reward = self.get_reward()
         global_state = self.get_global_state()
-        units_state = self.get_units_state()
-        city_state = torch.tensor([]).to(self.device)
-        return [global_state,units_state,city_state], reward, done, info
+        return global_state, reward, done, info
 
     def reset(self):
         map_seed = np.random.randint(0,1000000000)
@@ -156,10 +145,8 @@ class EnvWrapper:
         obs = self.trainer.reset()
         self.update_game_state(obs)
         global_state = self.get_global_state()
-        units_state = self.get_units_state()
-        city_state = torch.tensor([]).to(self.device)
         print("map size: ", self.height)
-        return [global_state,units_state,city_state]
+        return global_state
     
     def get_game_objects(self):
         return [self.player, self.city_tiles]

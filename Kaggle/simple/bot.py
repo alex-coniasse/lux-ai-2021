@@ -32,7 +32,7 @@ class Bot:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.00025)
         self.loss_fn = torch.nn.SmoothL1Loss()
         
-        self.burnin = 10000 #1e4  # min. experiences before training
+        self.burnin = 1000 #1e4  # min. experiences before training
         self.learn_every = 2  # no. of experiences between updates to Q_online
         self.sync_every = 1e4  # no. of experiences between Q_target & Q_online sync
         
@@ -48,50 +48,83 @@ class Bot:
         actions = []
         cities_actions = []
         player, city_tiles = game_objects
-        global_state_tensor = state[0].unsqueeze(0)
-        units_state_tensor = state[1].unsqueeze(0)
+        global_state_tensor = state
+        
         explore = np.random.rand() < self.exploration_rate and self.training
 
         def get_random_actions(unit):
             actions_list = [unit.move(DIRECTIONS.NORTH), unit.move(DIRECTIONS.SOUTH), unit.move(DIRECTIONS.EAST), 
                             unit.move(DIRECTIONS.WEST), unit.build_city(), unit.pillage()]
             i = np.random.randint(6, size=1)[0]
-            return actions_list[i]
+            
+            return actions_list[i], i
+        
+        def get_city_actions(city):
+            if np.random.rand() < 0.5:
+                return city.research()
+            else:
+                return city.build_worker()
+
 
         num_citytiles = len([city for city in city_tiles if city.team == player.team])
         num_units = len(player.units)
-        for city in city_tiles:
-            # TODO: hardcoded city policy here
-            if city.team == player.team and city.can_act():
-                if num_units < num_citytiles:
-                    num_units +=1
-                    cities_actions.append(city.build_worker())
-                else:
-                    cities_actions.append(city.research())
-                    
 
+        masks = torch.zeros(4, 32, 32).to(self.device)
+        # 0 - 1 : actions values
+        # 2 - 3 : binary mask
+                
         # print(player.team)
-        if (explore):
+        if (explore): #!!!!!!!!!!!
         #EXPLORE
             for unit in player.units:
                 if unit.is_worker() and unit.can_act():
-                    actions.append(get_random_actions(unit))
+                    x = unit.pos.x
+                    y = unit.pos.y
+                    action, idx = get_random_actions(unit)
+                    actions.append(action)
+                    masks[0, x, y] = idx
+                    masks[2, x, y] = 1
+
+            for city in city_tiles:
+                if city.team == player.team and city.can_act():
+                    x = city.pos.x
+                    y = city.pos.y
+                    masks[3, x, y] = 1
+                    if num_units < num_citytiles and np.random.rand() < 0.55:
+                        num_units +=1
+                        cities_actions.append(city.build_worker())
+                        masks[1, x, y] = 0
+                    else:
+                        cities_actions.append(city.research())
+                        masks[1, x, y] = 1
         else:
         # EXPLOIT
-            if len(units_state_tensor) > 1:
-                action_qvalues = self.model([global_state_tensor, units_state_tensor], mode="online")
-                # print(action_qvalues)
+                q_units, q_city = self.model(global_state_tensor.unsqueeze(0), mode="online")
                 # select idx with higher Q prediction for each unit
-                action_idx = [torch.argmax(Q, axis=1).item() for Q in action_qvalues]
+                
+                # [channel, height, width]
+                action_idx_units = torch.argmax(q_units, axis=1)
+                action_idx_city = torch.argmax(q_city, axis=1)
 
-                idx=0
                 for unit in player.units:
+                    x = unit.pos.x
+                    y = unit.pos.y
                     if unit.can_act():
-                        actions_list = [unit.move(DIRECTIONS.NORTH), unit.move(DIRECTIONS.SOUTH), unit.move(DIRECTIONS.EAST), 
-                                unit.move(DIRECTIONS.WEST), unit.build_city(), unit.pillage()]
-                        action = actions_list[action_idx[idx]]
+                        actions_list_unit = [unit.move(DIRECTIONS.NORTH), unit.move(DIRECTIONS.SOUTH), unit.move(DIRECTIONS.EAST), 
+                                        unit.move(DIRECTIONS.WEST), unit.build_city(), unit.pillage()]
+                        action = actions_list_unit[action_idx_units[0, x, y].item()]
+                        masks[0, x, y] = action_idx_units[0, x, y]
+                        masks[2, x, y] = 1
                         actions.append(action)
-                        idx+=1
+                for city in city_tiles:
+                    if city.team == player.team and city.can_act():
+                        x = city.pos.x
+                        y = city.pos.y
+                        actions_list_city = [city.build_worker(), city.research()]
+                        action = actions_list_city[action_idx_city[0, x, y].item()]
+                        masks[1, x, y] = action_idx_city[0, x, y]
+                        masks[3, x, y] = 1
+                        cities_actions.append(action)
 
         # decrease exploration_rate
         self.exploration_rate *= self.exploration_rate_decay
@@ -100,35 +133,28 @@ class Bot:
         # increment step
         self.curr_step += 1
 
-        return actions, cities_actions
+        return actions, cities_actions, masks
 
-    def cache(self, state, next_state, action, reward, done, info):
+    def cache(self, state, next_state, action, reward, done, info, masks):
         global_state = state[0]
         units_state = state[1]
         
         next_global_state = next_state[0]
         next_unit_state = next_state[1]
         
-        action = torch.tensor(action).to(self.device)
+        # units_actions = torch.tensor(action[0]).to(self.device)
+        # city_actions = torch.tensor(action[1]).to(self.device)
         reward = torch.tensor([reward]).to(self.device)
-        done = torch.tensor([done]).to(self.device)
+        done = torch.tensor([done]).float().to(self.device)
 
-        self.memory.append((global_state, units_state, next_global_state, next_unit_state, action, reward, done,))
+        self.memory.append((state, next_state, masks.to(torch.int64), reward, done,))
     
     
     def get_batch(self):
-        """Sample a batch from the cache"""
-                       
+        """Sample a batch from the cache"""            
         batch = random.sample(self.memory, self.batch_size)
-        batch_constant = [(state[0], state[2], state[5], state[6]) for state in batch] # constant shape: global_state, next_global_state, reward, done
-        
-        batch_sequences = [(state[1], state[3], state[4]) for state in batch] # variable shape: units_state, next_units_state, action
-        seq_lenghts = [(seq[0].shape[0], seq[1].shape[0], seq[2].shape[0]) for seq in batch_sequences]
-        
-        global_state, next_global_state, reward, done = map(torch.stack, zip(*batch_constant))
-        unit_state, next_unit_state, action = map(lambda x: pad_sequence(x, batch_first=True), zip(*batch_sequences))
-        
-        return global_state, unit_state, next_global_state, next_unit_state, action, reward.squeeze(), done.squeeze(), seq_lenghts
+        state, next_state, reward, done, masks = map(torch.stack, zip(*batch))
+        return state, next_state, reward.squeeze(), done.squeeze(), masks
     
     def save(self):
         save_path = (
@@ -147,34 +173,47 @@ class Bot:
 
     def learn(self):
 
-        def td_estimate(state, actions, seq_lens):
+        def td_estimate(state, masks):
             """Estimate for a sequence of units"""
             # action.register_hook(lambda grad : print(grad))
-            Q_sequence = self.model(state, "online", seq_lens)
-            # Q_sequence[0].register_hook(lambda grad : print("gradient:", grad))
-            max_len = actions.shape[1]
-            actions = torch.chunk(action, max_len, dim=1)
-            current_Q_sequence = [torch.gather(current_Q, 1, action) for (action, current_Q) in zip(actions, Q_sequence)]
-            return current_Q_sequence
+            Q_units, Q_cities = self.model(state, "online")
+            
+            td_units = torch.gather(Q_units, 1, masks[:,0].unsqueeze(1)).squeeze(1)
+            td_cities = torch.gather(Q_cities, 1, masks[:,1].unsqueeze(1)).squeeze(1)
+            # need to retrieve the active units and cities from the 2d grid
+            td_units *= masks[:,2]
+            td_cities *= masks[:,3]
+            
+            return [td_units, td_cities]
 
         @torch.no_grad()
-        def td_target(reward, next_state, done, seq_lens):
+        def td_target(reward, next_state, done, masks):
             """Target for a sequence of units"""
-            next_state_Q_sequence = self.model(next_state, "online", seq_lens)
+            next_state_Q_units, next_state_Q_cities = self.model(next_state, "online")
             # need to mask se sequence here?
 
-            
-            best_actions = [torch.argmax(next_state_Q, axis=1).unsqueeze(1) for next_state_Q in next_state_Q_sequence]
-            next_Q_sequence = self.model(next_state, "target", seq_lens)
-            next_best_Q_sequence = [torch.gather(current_Q, 1, action) for (action, current_Q) in zip(best_actions, next_Q_sequence)]
+            best_actions_units = torch.argmax(next_state_Q_units, axis=1)
+            best_actions_cities = torch.argmax(next_state_Q_cities, axis=1)
 
-            return [(reward.unsqueeze(1) + (1 - done.unsqueeze(1).float()) * self.gamma * next_Q).float() for next_Q in next_best_Q_sequence]
+            next_Q_units, next_Q_cities = self.model(next_state, "target")
+            
+            next_best_Q_units = torch.gather(next_Q_units, 1, best_actions_units.unsqueeze(1)).squeeze(1)
+            next_best_Q_cities = torch.gather(next_Q_cities, 1, best_actions_cities.unsqueeze(1)).squeeze(1)
+            
+            reward = reward[:, None, None].expand([16, 32, 32])
+            done = done[:, None].expand([16, 32, 32])
+            units_target = (reward + (1 - done) * self.gamma * next_best_Q_units).float()
+            cities_target = (reward + (1 - done) * self.gamma * next_best_Q_cities).float()
+            units_target*= masks[:,2]
+            cities_target*= masks[:,3]
+            
+            return [units_target, cities_target]
         
         @torch.enable_grad()
         def update_Q_online(td_estimate, td_target):
             losses = torch.stack([self.loss_fn(td_e, td_t) for (td_e, td_t) in zip(td_estimate, td_target)])
             # losses.register_hook(lambda grad : print(grad))
-            loss = torch.mean(losses)
+            loss = torch.sum(losses)*10
             # loss.register_hook(lambda grad : print(grad))
             self.optimizer.zero_grad()
             loss.backward()
@@ -203,18 +242,13 @@ class Bot:
             return None, None
         
         # Sample from memory
-        global_state, units_state, next_global_state, next_unit_state, action, reward, done, seq_lenghts = self.get_batch()
-        state = [global_state, units_state]
-        next_state = [next_global_state, next_unit_state]
-        
-        state_seq_lenghts = [sl[0] for sl in seq_lenghts]
-        next_state_seq_lenghts = [sl[1] for sl in seq_lenghts]
-        
+        state, next_state, masks, reward, done = self.get_batch()
+        # action = [city_actions, units_actions]
         # Get TD Estimate
-        td_est = td_estimate(state, action, state_seq_lenghts)
+        td_est = td_estimate(state, masks)
 
         # Get TD Target
-        td_tgt = td_target(reward, next_state, done, next_state_seq_lenghts)
+        td_tgt = td_target(reward, next_state, done, masks)
         # print(td_tgt[0].shape)
         # print(td_est[0].shape)
 
@@ -234,49 +268,17 @@ class Bot:
     def log_tensorboard(self, writer):
         if self.curr_step > self.burnin:
             
-            writer.add_histogram("online_GRU_0_ih", self.model.online.rnn.weight_ih_l0 , self.curr_step)
-            writer.add_histogram("online_GRU_0_ih_bias", self.model.online.rnn.bias_ih_l0 , self.curr_step)
-            writer.add_histogram("online_GRU_0_hh", self.model.online.rnn.weight_hh_l0 , self.curr_step)
-            writer.add_histogram("online_GRU_0_hh_bias", self.model.online.rnn.bias_hh_l0 , self.curr_step)
-            
-            # writer.add_histogram("online_GRU_1_ih", self.model.online.rnn.weight_ih_l1 , self.curr_step)
-            # writer.add_histogram("online_GRU_1_ih_bias", self.model.online.rnn.bias_ih_l1 , self.curr_step)
-            # writer.add_histogram("online_GRU_1_hh", self.model.online.rnn.weight_hh_l1, self.curr_step)
-            # writer.add_histogram("online_GRU_1_hh_bias", self.model.online.rnn.bias_hh_l1 , self.curr_step)
-            
-            writer.add_histogram("online_map_conv1", self.model.online.mapEncoder.conv1.weight, self.curr_step)
-            writer.add_histogram("online_map_conv2", self.model.online.mapEncoder.conv2.weight, self.curr_step)
-            writer.add_histogram("online_map_conv1_bias", self.model.online.mapEncoder.conv1.bias, self.curr_step)
-            writer.add_histogram("online_map_conv2_bias", self.model.online.mapEncoder.conv2.bias, self.curr_step)
-            
-            writer.add_histogram("online_map_ffn", self.model.online.mapEncoder.ffn_map.weight, self.curr_step)
-            writer.add_histogram("online_map_ffn_bias", self.model.online.mapEncoder.ffn_map.bias, self.curr_step)
-            
-            writer.add_histogram("online_joiner", self.model.online.joiner.weight, self.curr_step)
-            writer.add_histogram("online_joiner_bias", self.model.online.joiner.bias, self.curr_step)
-            
-            writer.add_histogram("online_output", self.model.online.output.weight, self.curr_step)
-            writer.add_histogram("online_output_bias", self.model.online.output.bias, self.curr_step)
+            writer.add_histogram("online_conv1", self.model.online.conv1.weight , self.curr_step)
+            writer.add_histogram("online_conv2", self.model.online.conv2.weight, self.curr_step)
+            writer.add_histogram("online_conv3", self.model.online.conv3.weight , self.curr_step)
+            writer.add_histogram("online_out_unit", self.model.online.out_unit.weight , self.curr_step)
+            writer.add_histogram("online_out_city", self.model.online.out_city.weight, self.curr_step)
             
             writer.add_scalar("Exploration_rate", self.exploration_rate, self.curr_step)
             
             #Grads
-            
-            writer.add_histogram("online_GRU_0_ih_grad", self.model.online.rnn.weight_ih_l0.grad , self.curr_step)
-            writer.add_histogram("online_GRU_0_ih_bias_grad", self.model.online.rnn.bias_ih_l0.grad , self.curr_step)
-            writer.add_histogram("online_GRU_0_hh_grad", self.model.online.rnn.weight_hh_l0.grad , self.curr_step)
-            writer.add_histogram("online_GRU_0_hh_bias_grad", self.model.online.rnn.bias_hh_l0.grad , self.curr_step)
-            
-            writer.add_histogram("online_map_conv1_grad", self.model.online.mapEncoder.conv1.weight.grad, self.curr_step)
-            writer.add_histogram("online_map_conv2_grad", self.model.online.mapEncoder.conv2.weight.grad, self.curr_step)
-            writer.add_histogram("online_map_conv1_bias_grad", self.model.online.mapEncoder.conv1.bias.grad, self.curr_step)
-            writer.add_histogram("online_map_conv2_bias_grad", self.model.online.mapEncoder.conv2.bias.grad, self.curr_step)
-            
-            writer.add_histogram("online_map_ffn_grad", self.model.online.mapEncoder.ffn_map.weight.grad, self.curr_step)
-            writer.add_histogram("online_map_ffn_bias_grad", self.model.online.mapEncoder.ffn_map.bias.grad, self.curr_step)
-            
-            writer.add_histogram("online_joiner_grad", self.model.online.joiner.weight.grad, self.curr_step)
-            writer.add_histogram("online_joiner_bias_grad", self.model.online.joiner.bias.grad, self.curr_step)
-            
-            writer.add_histogram("online_output_grad", self.model.online.output.weight.grad, self.curr_step)
-            writer.add_histogram("online_output_bia_grads", self.model.online.output.bias.grad, self.curr_step)
+            writer.add_histogram("online_conv1", self.model.online.conv1.grad , self.curr_step)
+            writer.add_histogram("online_conv2", self.model.online.conv2.grad, self.curr_step)
+            writer.add_histogram("online_conv3", self.model.online.conv3.grad , self.curr_step)
+            writer.add_histogram("online_out_unit", self.model.online.out_unit.grad , self.curr_step)
+            writer.add_histogram("online_out_city", self.model.online.out_city.grad, self.curr_step)

@@ -11,7 +11,7 @@ import argparse
 
 
 
-
+torch.set_printoptions(threshold=5000)
 episodes = 17000
 max_reward = 1000000
 
@@ -40,14 +40,20 @@ if __name__ == "__main__":
     env = EnvWrapper(agent)
     writer = SummaryWriter()
 
-    def action_string_to_idx(action):
+    def unit_action_string_to_idx(action):
+        # print(action)
         offsets = {"n":0, "s":1, "e":2, "w":3, "b":4, "p":5}
         if action[0] == "m":
             return offsets[action[-1]]
         else:
             return offsets[action[0]]
-
     
+    def city_action_string_to_idx(action):
+        if action[0] == "b": #bw
+            return 0
+        else:
+            return 1 # research
+
     best_episodes = []
 
     for e in range (episodes):
@@ -59,9 +65,7 @@ if __name__ == "__main__":
         while True:
             # Run agent on the state
             # Cities action are not learnable yet and must be separated
-            action, cities_actions = bot.play(state, game_objects)
-            # print(len(game_objects[0].units))
-            # print(len(action))
+            action, cities_actions, masks = bot.play(state, game_objects)
             
             # Agent performs action
             next_state, reward, done, info = env.step([*action, *cities_actions])
@@ -69,10 +73,11 @@ if __name__ == "__main__":
             writer.add_scalar('reward', reward, bot.curr_step)
 
             
-            # Remember if action is not empty and next state has units that can play
-            if len(action)>0 and len(next_state[1])>0:
-                action = [action_string_to_idx(a) for a in action]
-                bot.cache(state, next_state, action, reward, done, info)
+            # Remember if action if not empty
+            if len(action) + len(cities_actions ) > 0:
+                action = [unit_action_string_to_idx(a) for a in action]
+                cities_actions = [city_action_string_to_idx(a) for a in cities_actions]
+                bot.cache(state, next_state, [action, cities_actions], reward, done, info, masks)
 
             # Learn
             loss, _ = bot.learn()
