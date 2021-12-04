@@ -138,16 +138,13 @@ class Bot:
     def cache(self, state, next_state, action, reward, done, info, masks):
         global_state = state[0]
         units_state = state[1]
-        
-        next_global_state = next_state[0]
-        next_unit_state = next_state[1]
-        
+                
         # units_actions = torch.tensor(action[0]).to(self.device)
         # city_actions = torch.tensor(action[1]).to(self.device)
         reward = torch.tensor([reward]).to(self.device)
         done = torch.tensor([done]).float().to(self.device)
 
-        self.memory.append((state, next_state, masks.to(torch.int64), reward, done,))
+        self.memory.append((state, next_state, masks.long(), reward, done,))
     
     
     def get_batch(self):

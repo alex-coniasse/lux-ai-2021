@@ -18,7 +18,7 @@ class EnvWrapper:
         self.trainer = self.env.train([None,opponent])
         obs = self.trainer.reset()
         self.update_game_state(obs)
-        self.device = "cpu"
+        device = "cuda" if (torch.cuda.is_available()) else "cpu"
         self.current_reward = 0
 
 
