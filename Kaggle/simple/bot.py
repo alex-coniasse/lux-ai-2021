@@ -274,8 +274,8 @@ class Bot:
             writer.add_scalar("Exploration_rate", self.exploration_rate, self.curr_step)
             
             #Grads
-            writer.add_histogram("online_conv1", self.model.online.conv1.weight.grad , self.curr_step)
-            writer.add_histogram("online_conv2", self.model.online.conv2.weight.grad, self.curr_step)
-            writer.add_histogram("online_conv3", self.model.online.conv3.weight.grad , self.curr_step)
-            writer.add_histogram("online_out_unit", self.model.online.out_unit.weight.grad , self.curr_step)
-            writer.add_histogram("online_out_city", self.model.online.out_city.weight.grad, self.curr_step)
+            writer.add_histogram("online_conv1_grad", self.model.online.conv1.weight.grad , self.curr_step)
+            writer.add_histogram("online_conv2_grad", self.model.online.conv2.weight.grad, self.curr_step)
+            writer.add_histogram("online_conv3_grad", self.model.online.conv3.weight.grad , self.curr_step)
+            writer.add_histogram("online_out_unit_grad", self.model.online.out_unit.weight.grad , self.curr_step)
+            writer.add_histogram("online_out_city_grad", self.model.online.out_city.weight.grad, self.curr_step)
